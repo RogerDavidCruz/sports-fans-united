@@ -9,13 +9,13 @@ const getAllUsers = async () => {
     }
 };
 
-const createUser = async (name, email, favorite_team, favorite_player) => {
-    try {
-        return await userModel.createUser(name, email, favorite_team, favorite_player);
-    } catch (error) {
-        console.error("Error in createUser (service):", error);
-        throw error;
-    }
+const createUser = async (name, email, favorite_sport, favorite_team, favorite_player) => {
+  try {
+    return await userModel.createUser(name, email, favorite_sport, favorite_team, favorite_player);
+  } catch (error) {
+    console.error('Error in createUser (service):', error);
+    throw error;
+  }
 };
 
 const getUserById = async (id) => {

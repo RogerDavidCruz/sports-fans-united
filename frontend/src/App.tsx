@@ -1,19 +1,33 @@
-import { MantineProvider } from '@mantine/core';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import UserPage from './pages/UserPage';
+import UserProfilePage from './pages/UserProfilePage';
+import ChatRoom from './pages/ChatRoom';
+import NavBar from './components/NavBar';
 
-function App() {
+function Layout({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  const showNav = pathname !== '/'; // hide on landing
   return (
-    <MantineProvider defaultColorScheme="light">
-      <Router>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/users" element={<UserPage />} />
-        </Routes>
-      </Router>
-    </MantineProvider>
+    <>
+      {showNav && <NavBar />}
+      {children}
+    </>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <Router>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/users" element={<UserPage />} />
+          <Route path="/user/:id/profile" element={<UserProfilePage />} />
+          <Route path="/rooms/:roomId" element={<ChatRoom />} />
+          <Route path="*" element={<UserPage />} />
+        </Routes>
+      </Layout>
+    </Router>
+  );
+}

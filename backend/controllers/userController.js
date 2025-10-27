@@ -11,13 +11,28 @@ const getAllUsers = async (req, res) => {
 };
 
 const createUser = async (req, res) => {
-  const { name, email, favorite_team, favorite_player } = req.body;
+  const { name, email, favorite_sport, favorite_team, favorite_player } = req.body;
+  if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+
   try {
-    const newUser = await userService.createUser(name, email, favorite_team, favorite_player);
-    res.status(201).json(newUser);
+    const newUser = await userService.createUser(
+      name,
+      email,
+      favorite_sport ?? null,
+      favorite_team ?? null,
+      favorite_player ?? null
+    );
+    return res.status(201).json(newUser);
   } catch (err) {
-    console.error("Error in createUser:", err);  // Added error logging
-    res.status(500).json({ error: 'Server error' }); // Send JSON response
+    console.error('Error in createUser:', err);
+
+    if (err.code === '23505') { // unique_violation
+      return res.status(409).json({ error: 'Email already exists' });
+    }
+    if (err.code === '22001') { // string_data_right_truncation
+      return res.status(400).json({ error: 'Field too long' });
+    }
+    return res.status(500).json({ error: 'Server error' });
   }
 };
 

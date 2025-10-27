@@ -1,16 +1,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { MantineProvider, ColorSchemeScript } from '@mantine/core';
+import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const el = document.getElementById('root');
+if (!el) throw new Error('Root element #root not found');
+
+ReactDOM.createRoot(el).render(
   <React.StrictMode>
-    <>
-      <ColorSchemeScript />
-      <MantineProvider defaultColorScheme="auto">
-        <App />
-      </MantineProvider>
-    </>
+    <MantineProvider defaultColorScheme="light">
+      <App />
+    </MantineProvider>
   </React.StrictMode>
 );
