@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Container, Title, Text, TextInput, Button, Group, Card,
-  List, Loader, Grid, Badge, Select, Stack
+  List, Loader, Grid, Badge, Select, Stack, ActionIcon, Tooltip,
 } from '@mantine/core';
 import { Link } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
+import { IconMessagePlus } from '@tabler/icons-react';
 
 type User = {
   id: number;
@@ -17,10 +18,12 @@ type User = {
 
 type Game = {
   id: string;
-  status: 'LIVE' | 'UPCOMING' | 'FINAL';
+  sport: string;             // "Soccer", "Basketball", ...
+  league?: string;           // optional league name
   home: string;
   away: string;
-  startTime: string;
+  startTimeIso: string;      // ISO datetime string from backend
+  status: 'LIVE' | 'UPCOMING' | 'FINAL';
 };
 
 type LiveRoom = {
@@ -41,7 +44,7 @@ const CATEGORIES = [
 ];
 
 function greetingByTime(d = new Date()) {
-  const h = d.getHours(); // browser local time
+  const h = d.getHours();
   if (h < 12) return 'Good morning';
   if (h < 18) return 'Good afternoon';
   return 'Good evening';
@@ -74,28 +77,44 @@ export default function UserPage() {
   const [teamQuery, setTeamQuery] = useState('');
   const [playerQuery, setPlayerQuery] = useState('');
 
-  // Demo games
-  const [games] = useState<Game[]>([
-    { id: 'g1', status: 'LIVE', home: 'USA', away: 'Brazil', startTime: '1st half 23’' },
-    { id: 'g2', status: 'UPCOMING', home: 'Arsenal', away: 'Chelsea', startTime: 'Today 7:30 PM' },
-    { id: 'g3', status: 'UPCOMING', home: 'Inter', away: 'Milan', startTime: 'Tomorrow 3:00 PM' },
-  ]);
-
   // Live rooms
   const [rooms, setRooms] = useState<LiveRoom[]>([]);
   const [creating, setCreating] = useState(false);
+
+  // Live & upcoming games (from backend)
+  const [games, setGames] = useState<Game[]>([]);
+  const [gamesLoading, setGamesLoading] = useState(false);
+  const [gamesError, setGamesError] = useState<string>();
+
+  function fmtLocalTime(iso: string) {
+    const d = new Date(iso);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  }
 
   async function fetchRooms() {
     const r = await fetch('/api/rooms');
     if (r.ok) setRooms(await r.json());
   }
 
-  // ⚠️ Socket for room list updates — with correct cleanup
+  async function fetchGames() {
+    try {
+      setGamesLoading(true);
+      setGamesError(undefined);
+      const r = await fetch('/api/games/live');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data: Game[] = await r.json();
+      setGames(data);
+    } catch (e: any) {
+      setGamesError(e.message || 'Failed to load games');
+    } finally {
+      setGamesLoading(false);
+    }
+  }
+
+  // Socket for room list updates — with correct cleanup
   useEffect(() => {
     const s: Socket = io(socketURL, { transports: ['websocket', 'polling'] });
     s.on('rooms_updated', fetchRooms);
-
-    // ✅ Cleanup returns a function (void), not the socket
     return () => {
       s.off('rooms_updated', fetchRooms);
       s.disconnect();
@@ -115,8 +134,15 @@ export default function UserPage() {
     }
 
     fetchRooms();
-    const iv = setInterval(fetchRooms, 30_000);
-    return () => clearInterval(iv);
+
+    // Games: initial + auto-refresh every 60s
+    fetchGames();
+    const ivRooms = setInterval(fetchRooms, 30_000);
+    const ivGames = setInterval(fetchGames, 60_000);
+    return () => {
+      clearInterval(ivRooms);
+      clearInterval(ivGames);
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -134,6 +160,7 @@ export default function UserPage() {
     return Math.max(0, Math.ceil(ms / 60000));
   }
 
+  // Manual room create (from text input)
   async function createRoom() {
     const input = document.getElementById('roomName') as HTMLInputElement | null;
     const name = (input?.value || '').trim();
@@ -155,6 +182,29 @@ export default function UserPage() {
       alert(e.message);
     } finally {
       setCreating(false);
+    }
+  }
+
+  // NEW: Create a room directly from a game row (hits POST /api/rooms/from-game)
+  async function createRoomFromGame(g: Game) {
+    try {
+      const r = await fetch('/api/rooms/from-game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sport: g.sport,
+          league: g.league,
+          home: g.home,
+          away: g.away,
+          startTimeIso: g.startTimeIso,
+        }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const room = await r.json();
+      // Navigate to the new/derived room
+      window.location.href = `/rooms/${room.id}`;
+    } catch (e: any) {
+      alert(`Could not create room: ${e.message}`);
     }
   }
 
@@ -233,28 +283,65 @@ export default function UserPage() {
             )}
           </Card>
 
-          {/* Games feed */}
+          {/* Games feed (now fetched) */}
           <Card withBorder shadow="sm" padding="lg" mt="lg">
-            <Title order={4}>Live & Upcoming Games</Title>
-            <List spacing="sm" mt="md">
-              {games.map((g) => (
-                <List.Item key={g.id}>
-                  <Badge
-                    variant="light"
-                    color={g.status === 'LIVE' ? 'red' : g.status === 'UPCOMING' ? 'blue' : 'gray'}
-                    mr="sm"
-                  >
-                    {g.status}
-                  </Badge>
-                  <strong>{g.home}</strong> vs <strong>{g.away}</strong> — {g.startTime}
-                </List.Item>
-              ))}
-            </List>
-            <Text c="dimmed" mt="sm" size="sm">Next step: fetch real fixtures and auto-refresh live games.</Text>
+            <Group justify="space-between" align="center">
+              <Title order={4}>Live & Upcoming Games</Title>
+              <Button size="xs" variant="light" onClick={fetchGames} loading={gamesLoading}>
+                Refresh
+              </Button>
+            </Group>
+
+            {gamesLoading && <Loader mt="md" />}
+
+            {gamesError && (
+              <Text c="red" mt="md">Failed to load games: {gamesError}</Text>
+            )}
+
+            {!gamesLoading && !gamesError && (
+              <List spacing="sm" mt="md">
+                {games.length === 0 && (
+                  <Text c="dimmed">No games found for today yet.</Text>
+                )}
+                {games.map((g) => (
+                  <List.Item key={g.id}>
+                    <Badge
+                      variant="light"
+                      color={g.status === 'LIVE' ? 'red' : g.status === 'UPCOMING' ? 'blue' : 'gray'}
+                      mr="sm"
+                    >
+                      {g.status}
+                    </Badge>
+
+                    {/* Basic game text */}
+                    <Text component="span">
+                      <strong>{g.home}</strong> vs <strong>{g.away}</strong>
+                      {g.league ? ` — ${g.league}` : ''} · {fmtLocalTime(g.startTimeIso)}
+                    </Text>
+
+                    {/* NEW: quick-create chat for this game */}
+                    <Tooltip label="Start a chat for this game">
+                      <ActionIcon
+                        aria-label="Create chat room"
+                        variant="light"
+                        ml="sm"
+                        onClick={() => createRoomFromGame(g)}
+                      >
+                        <IconMessagePlus size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </List.Item>
+                ))}
+              </List>
+            )}
+
+            <Text c="dimmed" mt="sm" size="sm">
+              Powered by TheSportsDB (soccer) & balldontlie (NBA). Auto-refreshes every 60s.
+            </Text>
           </Card>
         </Grid.Col>
 
-        {/* Right: Create room + Live rooms + My profile */}
+        {/* Right: Create room + Live rooms */}
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Card withBorder shadow="sm" padding="lg">
             <Title order={4}>Start a Chat Room</Title>
@@ -271,7 +358,6 @@ export default function UserPage() {
             </Stack>
           </Card>
 
-          {/* Live rooms list */}
           <Card withBorder shadow="sm" padding="lg" mt="lg">
             <Title order={4}>Live Rooms (90-min)</Title>
             {rooms.length === 0 ? (
@@ -292,7 +378,6 @@ export default function UserPage() {
               </List>
             )}
           </Card>
-
         </Grid.Col>
       </Grid>
     </Container>

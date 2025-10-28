@@ -7,6 +7,7 @@ const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
+// ---------------- Testing connection ----------------
 app.get('/db-ping', async (_req, res) => {
   try {
     const r = await pool.query('SELECT 1 AS ok');
@@ -20,7 +21,126 @@ app.get('/db-ping', async (_req, res) => {
 app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173'] }));
 app.use(express.json());
 
-// REST (users)
+// ---------------- APIs for External games feed data (TheSportsDB + balldontlie) ----------------
+const HAS_NATIVE_FETCH = typeof fetch === 'function';
+// Fallback fetch for older Node versions
+const myFetch = HAS_NATIVE_FETCH
+  ? fetch
+  : (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+
+function normalizeStatus(s) {
+  const x = (s || '').toLowerCase();
+  if (x.includes('live') || x.includes('in play') || x.includes('inprogress')) return 'LIVE';
+  if (x.includes('finished') || x.includes('final') || x.includes('ft') || x.includes('ended')) return 'FINAL';
+  return 'UPCOMING';
+}
+
+function mkId(...parts) {
+  return parts.join('_').toLowerCase().replace(/\s+/g, '-');
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Soccer via TheSportsDB (free V1 key = 123). Live scores need premium (V2).
+async function fetchSoccer() {
+  const key = process.env.THESPORTSDB_KEY || '1';
+  const today = new Date().toISOString().slice(0,10);
+
+  const leagues = [
+    'English Premier League',
+    'Spanish La Liga',
+  ];
+
+  const out = [];
+  for (const league of leagues) {
+    const url = `https://www.thesportsdb.com/api/v1/json/${key}/eventsday.php?d=${today}&l=${encodeURIComponent(league)}`;
+    try {
+      const j = await httpGetJson(url);
+      const ev = j?.events || [];
+      for (const e of ev) {
+        out.push({
+          id: mkId('soccer', e.idEvent || e.strEvent, e.dateEvent, e.strTime),
+          sport: 'Soccer',
+          league: e.strLeague,
+          home: e.strHomeTeam,
+          away: e.strAwayTeam,
+          startTimeIso: `${e.dateEvent}T${(e.strTime || '00:00:00')}Z`,
+          status: normalizeStatus(e.strStatus || e.strProgress || e.strPostponed),
+        });
+      }
+    } catch (err) {
+      console.warn('[games] soccer fetch failed:', err.message);
+    }
+  }
+  return out;
+}
+
+// NBA via balldontlie (requires Authorization header on many deployments)
+async function fetchNBA() {
+  const today = new Date().toISOString().slice(0,10);
+  const key = process.env.BALLDONTLIE_KEY || '';
+  const host = process.env.BALLDONTLIE_HOST || (key ? 'https://api.balldontlie.io' : 'https://www.balldontlie.io');
+
+  const url = `${host}/v1/games?dates[]=${today}&per_page=100`;
+  const headers = key ? { Authorization: `Bearer ${key}` } : {};
+
+  try {
+    const j = await httpGetJson(url, headers);
+    const data = j?.data || [];
+    return data.map((g) => ({
+      id: mkId('nba', String(g.id)),
+      sport: 'Basketball',
+      league: 'NBA',
+      home: g.home_team?.full_name,
+      away: g.visitor_team?.full_name,
+      startTimeIso: g.date,                  // ISO from API
+      status: normalizeStatus(g.status),     // "Final", "In Progress", "Scheduled"
+    }));
+  } catch (err) {
+    console.warn('[games] nba fetch failed primary:', err.message);
+
+    // Fallback to legacy public host if primary fails
+    if (host !== 'https://www.balldontlie.io') {
+      try {
+        const fallbackUrl = `https://www.balldontlie.io/api/v1/games?dates[]=${today}&per_page=100`;
+        const j2 = await httpGetJson(fallbackUrl);
+        const data2 = j2?.data || [];
+        return data2.map((g) => ({
+          id: mkId('nba', String(g.id)),
+          sport: 'Basketball',
+          league: 'NBA',
+          home: g.home_team?.full_name,
+          away: g.visitor_team?.full_name,
+          startTimeIso: g.date,
+          status: normalizeStatus(g.status),
+        }));
+      } catch (err2) {
+        console.warn('[games] nba fallback failed:', err2.message);
+      }
+    }
+    return [];
+  }
+}
+
+
+// Unified endpoint: LIVE first, then by start time
+app.get('/api/games/live', async (_req, res) => {
+  try {
+    const [soccer, nba] = await Promise.all([fetchSoccer(), fetchNBA()]);
+    const all = [...soccer, ...nba].sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'LIVE' ? -1 : 1;
+      return new Date(a.startTimeIso) - new Date(b.startTimeIso);
+    });
+    res.json(all);
+  } catch (e) {
+    console.error('games_live error', e);
+    res.status(500).json({ error: 'Failed to load games' });
+  }
+});
+
+// ---------------- REST (users) ----------------
 app.use('/api/users', userRoutes);
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -31,12 +151,32 @@ const io = new Server(server, {
   cors: { origin: ['http://localhost:5173', 'http://127.0.0.1:5173'], methods: ['GET','POST'] },
 });
 
-// In-memory stores (demo)
+// ---------- In-memory stores (demo) ----------
 const rooms = new Map();       // id -> { id, name, createdAt, expiresAt, messages:[], participants: Map<userId, {id,name}>, history: Map<userId,{id,name,joinedAt}> }
 const pastRooms = new Map();   // expired archives: id -> { ... , expiredAt, participantsHistory: [{id,name}] }
 const userRoomHistory = new Map(); // userId -> [{ roomId, name, joinedAt, expiredAt? }]
 
-// helpers
+// ---------- Helper Functions ----------
+function normalizeStatus(s) {
+  const x = (s || '').toLowerCase();
+  if (x.includes('live') || x.includes('in play') || x.includes('inprogress')) return 'LIVE';
+  if (x.includes('finished') || x.includes('final') || x.includes('ft') || x.includes('ended')) return 'FINAL';
+  return 'UPCOMING';
+}
+
+function mkId(...parts) {
+  return parts.join('_').toLowerCase().replace(/\s+/g, '-');
+}
+
+async function httpGetJson(url, headers = {}) {
+  const r = await fetch(url, { headers });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new Error(`GET ${url} -> ${r.status} ${r.statusText}${text ? ` | ${text.slice(0,120)}` : ''}`);
+  }
+  return r.json();
+}
+
 const now = () => Date.now();
 const NINETY_MIN = 90 * 60 * 1000;
 
@@ -46,20 +186,30 @@ function makeId(name = 'fan-room') {
   return `${slug}-${rnd}`;
 }
 
-function createRoom(name) {
+function createRoom(name, opts = {}) {
   const id = makeId(name);
   const createdAt = now();
   const room = {
     id,
     name,
     createdAt,
-    expiresAt: createdAt + NINETY_MIN,
+    expiresAt: opts.expiresAt ? opts.expiresAt : createdAt + NINETY_MIN,
     messages: [],
     participants: new Map(),
-    history: new Map(), // who ever joined
+    history: new Map(),
   };
   rooms.set(id, room);
   return room;
+}
+
+function estimatedGameDurationMins(sport) {
+  const s = (sport || '').toLowerCase();
+  if (s.includes('soccer') || s.includes('futbol') || s.includes('football (soccer)')) return 105; // 90 + stoppage
+  if (s.includes('basketball') || s.includes('nba')) return 150; // 2–2.5h typical
+  if (s.includes('hockey') || s.includes('nhl')) return 135;
+  if (s.includes('baseball') || s.includes('mlb')) return 180;
+  if (s.includes('football') || s.includes('nfl')) return 195;
+  return 120;
 }
 
 function isExpired(room) {
@@ -165,6 +315,29 @@ app.post('/api/rooms', (req, res) => {
     name: room.name,
     createdAt: room.createdAt,
     expiresAt: room.expiresAt,
+  });
+});
+
+app.post('/api/rooms/from-game', (req, res) => {
+  const { sport, league, home, away, startTimeIso } = req.body || {};
+  if (!sport || !home || !away || !startTimeIso) {
+    return res.status(400).json({ error: 'sport, home, away, startTimeIso required' });
+  }
+
+  const name = `${(sport || '').toLowerCase()}: ${home} vs ${away}`;
+  const start = new Date(startTimeIso).getTime();
+  const end = start + estimatedGameDurationMins(String(sport)) * 60_000;
+  const expiresAt = end + 15 * 60_000; // +15min buffer
+
+  const room = createRoom(name, { expiresAt });
+  io.emit('rooms_updated');
+
+  res.status(201).json({
+    id: room.id,
+    name: room.name,
+    createdAt: room.createdAt,
+    expiresAt: room.expiresAt,
+    league: league || null,
   });
 });
 
