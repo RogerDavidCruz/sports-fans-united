@@ -12,7 +12,10 @@ import {
   Text,
   Alert,
   Badge,
+  Paper,
+  Divider,
 } from '@mantine/core';
+import { IconSend, IconUser, IconCircle, IconClock } from '@tabler/icons-react';
 
 type Msg = { user: string; text: string; ts: number };
 
@@ -87,63 +90,110 @@ export default function ChatRoom() {
   }
 
   return (
-    <Container size="sm" style={{ marginTop: '5vh' }}>
-      <Group justify="space-between" align="center">
-        <Title order={2}>Room: {roomId}</Title>
-        <Group>
-          <Badge variant="light">You: {username}</Badge>
-          <Badge color={connected ? 'green' : 'red'} variant="light">
-            {connected ? 'Connected' : 'Disconnected'}
-          </Badge>
-        </Group>
-      </Group>
+    <Container size="md" style={{ marginTop: '2vh', paddingBottom: '5vh' }}>
+      <Card shadow="lg" padding="xl" radius="md" withBorder>
+        <Stack gap="lg">
+          {/* Header */}
+          <div>
+            <Group justify="space-between" align="flex-start" mb="md">
+              <div style={{ flex: 1 }}>
+                <Title order={1} mb="xs">Chat Room</Title>
+                <Text fw={600} size="xl" c="blue" mb="sm">
+                  {roomId?.replace(/soccer:-|basketball:-|football:-/gi, '') || roomId}
+                </Text>
+                <Text c="dimmed" size="md">
+                  <strong>Room ID:</strong> {roomId}
+                </Text>
+              </div>
+              <Group gap="xs" align="flex-start">
+                <Badge
+                  variant="light"
+                  size="lg"
+                  leftSection={<IconUser size={16} />}
+                >
+                  {username}
+                </Badge>
+                <Badge
+                  color={connected ? 'green' : 'red'}
+                  variant="light"
+                  size="lg"
+                  leftSection={<IconCircle size={16} fill="currentColor" />}
+                >
+                  {connected ? 'Connected' : 'Disconnected'}
+                </Badge>
+              </Group>
+            </Group>
+          </div>
 
-      {expired && (
-        <Alert color="red" mt="md">
-          This room has expired (90-minute limit). Create a new one from the Fan
-          Hub.
-        </Alert>
-      )}
+          <Divider />
 
-      <Card
-        withBorder
-        shadow="sm"
-        padding="lg"
-        mt="lg"
-        style={{ maxHeight: 420, overflow: 'auto' }}
-      >
-        <Stack gap="xs">
-          {messages.map((m, i) => (
-            <div key={i}>
-              <Text fw={700}>{m.user}</Text>
-              <Text>{m.text}</Text>
-              <Text c="dimmed" size="xs">
-                {new Date(m.ts).toLocaleTimeString()}
-              </Text>
-            </div>
-          ))}
-          <div ref={endRef} />
+          {expired && (
+            <Alert color="red">
+              This room has expired (90-minute limit). Create a new one from the Fan Hub.
+            </Alert>
+          )}
+
+          {/* Messages */}
+          <Card
+            withBorder
+            shadow="sm"
+            padding="md"
+            style={{ 
+              height: '500px', 
+              overflow: 'auto',
+              background: '#f8f9fa'
+            }}
+          >
+            <Stack gap="md">
+              {messages.length === 0 ? (
+                <Text c="dimmed" ta="center" py="xl">
+                  No messages yet. Start the conversation!
+                </Text>
+              ) : (
+                messages.map((m, i) => (
+                  <Paper key={i} p="md" withBorder style={{ background: 'white' }}>
+                    <Group gap="xs" mb="xs">
+                      <IconUser size={16} />
+                      <Text fw={600} size="sm">{m.user}</Text>
+                      <Text c="dimmed" size="xs">
+                        <IconClock size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                        {new Date(m.ts).toLocaleTimeString()}
+                      </Text>
+                    </Group>
+                    <Text>{m.text}</Text>
+                  </Paper>
+                ))
+              )}
+              <div ref={endRef} />
+            </Stack>
+          </Card>
+
+          {/* Input */}
+          <Group gap="sm" grow>
+            <TextInput
+              placeholder={expired ? 'Room expired' : 'Type a message…'}
+              value={text}
+              onChange={(e) => setText(e.currentTarget.value)}
+              disabled={!connected || expired}
+              size="md"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+            />
+            <Button 
+              onClick={send} 
+              disabled={!connected || expired}
+              leftSection={<IconSend size={18} />}
+              size="md"
+            >
+              Send
+            </Button>
+          </Group>
         </Stack>
       </Card>
-
-      <Group mt="md">
-        <TextInput
-          placeholder={expired ? 'Room expired' : 'Type a message…'}
-          value={text}
-          onChange={(e) => setText(e.currentTarget.value)}
-          style={{ flex: 1 }}
-          disabled={!connected || expired}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              send();
-            }
-          }}
-        />
-        <Button onClick={send} disabled={!connected || expired}>
-          Send
-        </Button>
-      </Group>
     </Container>
   );
 }

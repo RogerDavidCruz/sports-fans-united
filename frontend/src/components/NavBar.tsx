@@ -1,7 +1,8 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Paper, Container, Group, Anchor, Button, Badge, Divider
+  Paper, Container, Group, Anchor, Button, Divider, Avatar, Text
 } from '@mantine/core';
+import { IconHome, IconUser, IconLogout, IconBallFootball } from '@tabler/icons-react';
 
 export default function NavBar() {
   const navigate = useNavigate();
@@ -10,8 +11,7 @@ export default function NavBar() {
   const userId = localStorage.getItem('currentUserId');
   const userName = localStorage.getItem('currentUserName') || 'Guest';
 
-  const active = (to: string) =>
-    pathname === to ? { textDecoration: 'underline', fontWeight: 600 } : undefined;
+  const active = (to: string) => pathname === to;
 
   function logout() {
     localStorage.removeItem('currentUserId');
@@ -19,39 +19,76 @@ export default function NavBar() {
     navigate('/');
   }
 
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
   return (
-    <Paper component="header" shadow="xs" radius={0}>
-      <Container size="lg" py="sm">
+    <Paper component="header" shadow="md" radius={0}>
+      <Container size="xl" py="md">
         <Group justify="space-between" align="center">
           {/* Left: brand + links */}
           <Group gap="lg" align="center">
-            <Anchor component={Link} to="/users" fw={700} style={{ textDecoration: 'none' }}>
-              Sports Fans United
+            <Anchor 
+              component={Link} 
+              to="/users" 
+              fw={700} 
+              size="lg"
+              style={{ textDecoration: 'none', color: '#667eea', display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <IconBallFootball size={24} stroke={2} />
+              <span>Sports Fans United</span>
             </Anchor>
 
             <Divider orientation="vertical" />
 
-            <Anchor component={Link} to="/users" style={active('/users')}>
-              Home
+            <Anchor 
+              component={Link} 
+              to="/users"
+              c={active('/users') ? 'blue' : 'dimmed'}
+              fw={active('/users') ? 600 : 500}
+              style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <IconHome size={16} />
+              <span>Home</span>
             </Anchor>
 
             {userId && (
               <Anchor
                 component={Link}
                 to={`/user/${userId}/profile`}
-                style={active(`/user/${userId}/profile`)}
+                c={active(`/user/${userId}/profile`) ? 'blue' : 'dimmed'}
+                fw={active(`/user/${userId}/profile`) ? 600 : 500}
+                style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
               >
-                My Profile
+                <IconUser size={16} />
+                <span>My Profile</span>
               </Anchor>
             )}
           </Group>
 
-          {/* Right: signed-in chip + logout */}
+          {/* Right: signed-in user + logout */}
           <Group gap="md">
-            <Badge variant="light" tt="uppercase" size="sm">
-              Signed in as {userName}
-            </Badge>
-            <Button variant="light" color="red" onClick={logout}>
+            <Group gap="sm">
+              <Avatar size={32} radius="xl" color="blue" variant="light">
+                {getInitials(userName)}
+              </Avatar>
+              <div>
+                <Text size="sm" fw={500}>{userName}</Text>
+                <Text size="xs" c="dimmed">Signed in</Text>
+              </div>
+            </Group>
+            <Button 
+              variant="light" 
+              color="red" 
+              onClick={logout}
+              leftSection={<IconLogout size={16} />}
+            >
               Logout
             </Button>
           </Group>

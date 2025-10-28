@@ -8,11 +8,16 @@ import NavBar from './components/NavBar';
 function Layout({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const showNav = pathname !== '/'; // hide on landing
+  const isLanding = pathname === '/';
+  
   return (
-    <>
+    <div style={{ 
+      background: isLanding ? 'transparent' : '#ffffff',
+      minHeight: '100vh'
+    }}>
       {showNav && <NavBar />}
       {children}
-    </>
+    </div>
   );
 }
 

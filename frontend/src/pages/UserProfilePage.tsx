@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Container, Title, Text, Card, Loader, Button, Group,
-  TextInput, Badge, List
+  TextInput, Badge, List, Stack, Avatar, Divider, Grid
 } from '@mantine/core';
+import { IconUser, IconEdit, IconMail, IconTrophy, IconUsers } from '@tabler/icons-react';
 
 type User = {
   id: number;
@@ -105,125 +106,206 @@ export default function UserProfilePage() {
     localStorage.setItem('currentUserName', updated.name || '');
   }
 
-  return (
-    <Container size="lg" style={{ marginTop: '5vh' }}>
-      <Title order={2}>My Profile</Title>
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
 
+  return (
+    <Container size="xl" style={{ marginTop: '2vh', paddingBottom: '5vh' }}>
       {loading && <Loader mt="md" />}
       {error && <Text c="red" mt="md">{error}</Text>}
 
       {!loading && !error && user && (
         <>
-          {/* Profile card */}
-          <Card withBorder shadow="sm" padding="lg" mt="lg">
-            {!editing ? (
-              <>
-                <Text>
-                  <strong>Name:</strong> {user.name}
-                </Text>
-                <Text>
-                  <strong>Email:</strong> {user.email}
-                </Text>
-                <Text>
-                  <strong>Favorite Sport:</strong> {user.favorite_sport || '—'}
-                </Text>
-                <Text>
-                  <strong>Favorite Team:</strong> {user.favorite_team || '—'}
-                </Text>
-                <Text>
-                  <strong>Favorite Player:</strong> {user.favorite_player || '—'}
-                </Text>
-
-                <Group mt="md">
-                  <Button onClick={() => setEditing(true)}>Edit Profile</Button>
+          {/* Header Section */}
+          <Card withBorder shadow="lg" padding="xl" radius="lg" mb="xl">
+            <Group align="flex-start" gap="lg">
+              <Avatar size={100} radius="xl" color="blue" variant="light">
+                {getInitials(user.name)}
+              </Avatar>
+              <div style={{ flex: 1 }}>
+                <Title order={1} mb="xs">{user.name}</Title>
+                <Group gap="md" mb="md">
+                  <Badge variant="light" color="blue" leftSection={<IconMail size={14} />}>
+                    {user.email}
+                  </Badge>
+                  <Button
+                    variant="light"
+                    leftSection={<IconEdit size={16} />}
+                    onClick={() => setEditing(!editing)}
+                  >
+                    {editing ? 'Cancel Edit' : 'Edit Profile'}
+                  </Button>
                   <Button variant="light" component={Link} to="/users">
                     Go to Hub
                   </Button>
                 </Group>
-              </>
-            ) : (
-              <>
-                <TextInput
-                  label="Name"
-                  value={name}
-                  onChange={(e) => setName(e.currentTarget.value)}
-                  required
-                />
-                <Text mt="xs" c="dimmed" size="sm">
-                  Email: {user.email}
-                </Text>
-
-                <Group grow mt="md">
-                  <TextInput
-                    label="Favorite Sport"
-                    value={favoriteSport}
-                    onChange={(e) => setFavoriteSport(e.currentTarget.value)}
-                    placeholder="e.g., Basketball"
-                  />
-                  <TextInput
-                    label="Favorite Team"
-                    value={favoriteTeam}
-                    onChange={(e) => setFavoriteTeam(e.currentTarget.value)}
-                    placeholder="e.g., Chicago Bulls"
-                  />
-                  <TextInput
-                    label="Favorite Player"
-                    value={favoritePlayer}
-                    onChange={(e) => setFavoritePlayer(e.currentTarget.value)}
-                    placeholder="e.g., Michael Jordan"
-                  />
-                </Group>
-
-                <Group mt="md">
-                  <Button onClick={saveProfile}>Save</Button>
-                  <Button
-                    variant="light"
-                    onClick={() => {
-                      // revert to last saved values
-                      if (!user) return;
-                      setName(user.name || '');
-                      setFavoriteSport(user.favorite_sport || '');
-                      setFavoriteTeam(user.favorite_team || '');
-                      setFavoritePlayer(user.favorite_player || '');
-                      setEditing(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </Group>
-              </>
-            )}
+              </div>
+            </Group>
           </Card>
 
-          {/* Rooms joined */}
-          <Card withBorder shadow="sm" padding="lg" mt="lg">
-            <Title order={4}>Chat Rooms You Joined</Title>
-            {rooms.length === 0 ? (
-              <Text c="dimmed" mt="md">No rooms yet.</Text>
-            ) : (
-              <List spacing="md" mt="md">
-                {rooms.map((r) => {
-                  const live = !r.expiredAt;
-                  return (
-                    <List.Item key={r.roomId}>
-                      <Group gap="xs">
-                        <Link to={`/rooms/${r.roomId}`} style={{ textDecoration: 'none' }}>
-                          <strong>{r.name || r.roomId}</strong>
-                        </Link>
-                        <Badge variant="light" color={live ? 'green' : 'gray'}>
-                          {live ? 'LIVE' : 'PAST'}
-                        </Badge>
-                      </Group>
-                      <Text c="dimmed" size="sm">
-                        Participants:{' '}
-                        {(r.participants || []).map((p) => p.name).join(', ') || '—'}
-                      </Text>
-                    </List.Item>
-                  );
-                })}
-              </List>
-            )}
-          </Card>
+          <Grid>
+            {/* Left Column - Profile Details */}
+            <Grid.Col span={{ base: 12, md: 8 }}>
+              <Card withBorder shadow="md" padding="xl" radius="md">
+                {!editing ? (
+                  <Stack gap="lg">
+                    <Title order={3}>Profile Information</Title>
+                    <Divider />
+                    
+                    <Grid gutter="md">
+                      <Grid.Col span={12}>
+                        <Group gap="md">
+                          <IconUser size={24} stroke={1.5} style={{ color: '#667eea' }} />
+                          <div>
+                            <Text size="sm" c="dimmed" fw={500}>Name</Text>
+                            <Text size="lg" fw={600}>{user.name}</Text>
+                          </div>
+                        </Group>
+                      </Grid.Col>
+                      
+                      <Grid.Col span={{ base: 12, sm: 6 }}>
+                        <Group gap="md">
+                          <div>
+                            <Text size="sm" c="dimmed" fw={500}>Favorite Sport</Text>
+                            <Text size="md">{user.favorite_sport || '—'}</Text>
+                          </div>
+                        </Group>
+                      </Grid.Col>
+                      
+                      <Grid.Col span={{ base: 12, sm: 6 }}>
+                        <Group gap="md">
+                          <IconTrophy size={24} stroke={1.5} style={{ color: '#667eea' }} />
+                          <div>
+                            <Text size="sm" c="dimmed" fw={500}>Favorite Team</Text>
+                            <Text size="md">{user.favorite_team || '—'}</Text>
+                          </div>
+                        </Group>
+                      </Grid.Col>
+                      
+                      <Grid.Col span={{ base: 12, sm: 6 }}>
+                        <Group gap="md">
+                          <IconUser size={24} stroke={1.5} style={{ color: '#667eea' }} />
+                          <div>
+                            <Text size="sm" c="dimmed" fw={500}>Favorite Player</Text>
+                            <Text size="md">{user.favorite_player || '—'}</Text>
+                          </div>
+                        </Group>
+                      </Grid.Col>
+                    </Grid>
+                  </Stack>
+                ) : (
+                  <Stack gap="md">
+                    <Title order={3}>Edit Profile</Title>
+                    <Divider />
+                    
+                    <TextInput
+                      label="Name"
+                      value={name}
+                      onChange={(e) => setName(e.currentTarget.value)}
+                      required
+                      size="md"
+                      placeholder="Your full name"
+                    />
+                    
+                    <TextInput
+                      label="Email"
+                      value={user.email}
+                      disabled
+                      size="md"
+                    />
+                    
+                    <TextInput
+                      label="Favorite Sport"
+                      value={favoriteSport}
+                      onChange={(e) => setFavoriteSport(e.currentTarget.value)}
+                      placeholder="e.g., Basketball"
+                      size="md"
+                    />
+                    
+                    <TextInput
+                      label="Favorite Team"
+                      value={favoriteTeam}
+                      onChange={(e) => setFavoriteTeam(e.currentTarget.value)}
+                      placeholder="e.g., Chicago Bulls"
+                      size="md"
+                    />
+                    
+                    <TextInput
+                      label="Favorite Player"
+                      value={favoritePlayer}
+                      onChange={(e) => setFavoritePlayer(e.currentTarget.value)}
+                      placeholder="e.g., Michael Jordan"
+                      size="md"
+                    />
+                    
+                    <Group mt="md">
+                      <Button onClick={saveProfile} leftSection={<IconEdit size={16} />}>
+                        Save Changes
+                      </Button>
+                      <Button
+                        variant="light"
+                        onClick={() => {
+                          if (!user) return;
+                          setName(user.name || '');
+                          setFavoriteSport(user.favorite_sport || '');
+                          setFavoriteTeam(user.favorite_team || '');
+                          setFavoritePlayer(user.favorite_player || '');
+                          setEditing(false);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </Group>
+                  </Stack>
+                )}
+              </Card>
+            </Grid.Col>
+
+            {/* Right Column - Chat Rooms */}
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <Card withBorder shadow="md" padding="xl" radius="md">
+                <Group mb="md">
+                  <IconUsers size={24} stroke={1.5} style={{ color: '#667eea' }} />
+                  <Title order={3}>Chat Rooms</Title>
+                </Group>
+                
+                {rooms.length === 0 ? (
+                  <Text c="dimmed" ta="center" py="xl">
+                    No rooms yet. Join a chat room to get started!
+                  </Text>
+                ) : (
+                  <List spacing="md">
+                    {rooms.map((r) => {
+                      const live = !r.expiredAt;
+                      return (
+                        <List.Item key={r.roomId} icon={<IconUsers size={16} />}>
+                          <Stack gap="xs">
+                            <Group gap="xs">
+                              <Link to={`/rooms/${r.roomId}`} style={{ textDecoration: 'none' }}>
+                                <Text fw={600} c="blue">{r.name || r.roomId}</Text>
+                              </Link>
+                              <Badge variant="light" color={live ? 'green' : 'gray'} size="sm">
+                                {live ? 'LIVE' : 'PAST'}
+                              </Badge>
+                            </Group>
+                            <Text size="sm" c="dimmed">
+                              {(r.participants || []).map((p) => p.name).join(', ') || 'No participants'}
+                            </Text>
+                          </Stack>
+                        </List.Item>
+                      );
+                    })}
+                  </List>
+                )}
+              </Card>
+            </Grid.Col>
+          </Grid>
         </>
       )}
     </Container>
