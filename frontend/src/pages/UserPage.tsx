@@ -149,7 +149,7 @@ export default function UserPage() {
 
       // Pull current user’s favorites (if available)
       const team = me?.favorite_team || '';
-      const sport = me?.favorite_sport || 'Soccer';
+      // sport is handled on the backend; no need to declare here
 
       // Send client tz offset (in minutes) and the team preference
       const clientOffset = new Date().getTimezoneOffset(); // e.g., EST = 300 (will be + or -)
@@ -286,7 +286,7 @@ export default function UserPage() {
   // ------------------------------ Render -------------------------------------
 
   return (
-    <Container size="lg" style={{ marginTop: '5vh' }}>
+    <Container size="xl" style={{ marginTop: '5vh', maxWidth: '1600px' }}>
       {/* Header / Greeting */}
       <Group justify="space-between" align="flex-start" style={{ marginTop: '5vh' }}>
         <div>
@@ -313,7 +313,7 @@ export default function UserPage() {
         {/* ---------------- Left column: Users + filters + Games ---------------- */}
         <Grid.Col span={{ base: 12, md: 7 }}>
           {/* Users list */}
-          <Card withBorder shadow="sm" padding="lg">
+          <Card withBorder shadow="sm" padding="xl">
             <Title order={4}>All Users</Title>
 
             <Stack mt="md">
@@ -362,7 +362,7 @@ export default function UserPage() {
           </Card>
 
           {/* Games feed */}
-          <Card withBorder shadow="sm" padding="lg" mt="lg">
+          <Card withBorder shadow="sm" padding="xl" mt="lg">
             <Group justify="space-between" align="center">
               <Title order={4}>Live & Upcoming Games</Title>
               <Button size="xs" variant="light" onClick={fetchGames} loading={gamesLoading}>
@@ -423,7 +423,7 @@ export default function UserPage() {
         {/* ---------------- Right column: Create room + Live rooms --------------- */}
         <Grid.Col span={{ base: 12, md: 5 }}>
           {/* Manual create */}
-          <Card withBorder shadow="sm" padding="lg">
+          <Card withBorder shadow="sm" padding="xl">
             <Title order={4}>Start a Chat Room</Title>
             <Text c="dimmed" mt="xs">Create a room for a match or topic and share the URL.</Text>
             <Stack mt="md">
@@ -439,7 +439,7 @@ export default function UserPage() {
           </Card>
 
           {/* Live rooms list (with delete for non-global rooms) */}
-          <Card withBorder shadow="sm" padding="lg" mt="lg">
+          <Card withBorder shadow="sm" padding="xl" mt="lg">
             <Title order={4}>Live Rooms (90-min)</Title>
             {rooms.length === 0 ? (
               <Text c="dimmed" mt="md">No live rooms yet.</Text>
