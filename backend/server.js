@@ -278,6 +278,52 @@ app.get('/api/rooms', (_req, res) => {
   res.json(live);
 });
 
+// Room detail (live or past)
+app.get('/api/rooms/:id', (req, res) => {
+  const id = req.params.id;
+  const live = rooms.get(id);
+  if (live && !isExpired(live)) {
+    return res.json({
+      id: live.id,
+      name: live.name,
+      createdAt: live.createdAt,
+      expiresAt: live.expiresAt,
+      participants: Array.from(live.participants.values()),
+    });
+  }
+  const past = pastRooms.get(id);
+  if (past) return res.json(past);
+  res.status(404).json({ error: 'Room not found' });
+});
+
+// User room history (live + past)
+app.get('/api/users/:id/rooms', (req, res) => {
+  const uid = String(req.params.id);
+  const hist = userRoomHistory.get(uid) || [];
+
+  // coalesce by roomId to the latest entry
+  const byRoom = new Map();
+  for (const h of hist) {
+    const prev = byRoom.get(h.roomId);
+    if (!prev || (h.joinedAt || 0) > (prev.joinedAt || 0)) byRoom.set(h.roomId, { ...h });
+  }
+  const uniq = Array.from(byRoom.values());
+
+  // enrich with participants and expiredAt
+  const enriched = uniq.map((h) => {
+    const live = rooms.get(h.roomId);
+    const past = pastRooms.get(h.roomId);
+    const participants = live ? Array.from(live.history.values())
+                              : (past?.participantsHistory || []);
+    const expiredAt = past?.expiredAt || (live && isExpired(live) ? now() : h.expiredAt);
+    return { ...h, participants, expiredAt };
+  });
+
+  // newest first
+  enriched.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+  res.json(enriched);
+});
+
 // Create a room explicitly
 app.post('/api/rooms', (req, res) => {
   const raw = (req.body?.name ?? 'fan room').trim();
@@ -341,51 +387,46 @@ app.post('/api/rooms/from-game', (req, res) => {
   });
 });
 
+// Delete a room (non-global). Also prune from histories and notify clients.
+app.delete('/api/rooms/:id', (req, res) => {
+  const { id } = req.params;
 
-// Room detail (live or past)
-app.get('/api/rooms/:id', (req, res) => {
-  const id = req.params.id;
-  const live = rooms.get(id);
-  if (live && !isExpired(live)) {
-    return res.json({
-      id: live.id,
-      name: live.name,
-      createdAt: live.createdAt,
-      expiresAt: live.expiresAt,
-      participants: Array.from(live.participants.values()),
-    });
+  // Guard: never delete the global lobby (or any fixed global)
+  if (id === 'global' || id === 'global-lobby') {
+    return res.status(400).json({ error: 'Cannot delete global room' });
   }
-  const past = pastRooms.get(id);
-  if (past) return res.json(past);
-  res.status(404).json({ error: 'Room not found' });
-});
 
-// User room history (live + past)
-app.get('/api/users/:id/rooms', (req, res) => {
-  const uid = String(req.params.id);
-  const hist = userRoomHistory.get(uid) || [];
-  
-  // coalesce by roomId to the latest entry
-  const byRoom = new Map();
-  for (const h of hist) {
-    const prev = byRoom.get(h.roomId);
-    if (!prev || (h.joinedAt || 0) > (prev.joinedAt || 0)) byRoom.set(h.roomId, { ...h });
+  let removed = false;
+
+  // If it's a live room, remove it
+  if (rooms.has(id)) {
+    rooms.delete(id);
+    removed = true;
   }
-  const uniq = Array.from(byRoom.values());
 
-  // enrich with participants and expiredAt
-  const enriched = uniq.map((h) => {
-    const live = rooms.get(h.roomId);
-    const past = pastRooms.get(h.roomId);
-    const participants = live ? Array.from(live.history.values())
-                              : (past?.participantsHistory || []);
-    const expiredAt = past?.expiredAt || (live && isExpired(live) ? now() : h.expiredAt);
-    return { ...h, participants, expiredAt };
-  });
+  // If it exists as an archived/past room, remove that too
+  if (pastRooms.has(id)) {
+    pastRooms.delete(id);
+    removed = true;
+  }
 
-  // newest first
-  enriched.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
-  res.json(enriched);
+  // Prune this room from every user's join history so it disappears from profile lists
+  for (const [uid, list] of userRoomHistory.entries()) {
+    const filtered = list.filter(item => item.roomId !== id);
+    if (filtered.length !== list.length) {
+      userRoomHistory.set(uid, filtered);
+      removed = true;
+    }
+  }
+
+  if (!removed) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+
+  // Let all clients refresh their room lists
+  io.emit('rooms_updated');
+
+  return res.sendStatus(204);
 });
 
 // ---------------- Socket events ----------------

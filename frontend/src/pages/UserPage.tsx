@@ -5,7 +5,7 @@ import {
 } from '@mantine/core';
 import { Link } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
-import { IconMessagePlus } from '@tabler/icons-react';
+import { IconMessagePlus, IconTrash } from '@tabler/icons-react';
 
 type User = {
   id: number;
@@ -366,13 +366,44 @@ export default function UserPage() {
               <List spacing="sm" mt="md">
                 {rooms.map((r) => (
                   <List.Item key={r.id}>
-                    <Link to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>
-                      <strong>{r.name}</strong>
-                    </Link>{' '}
-                    — <Badge variant="light" mr="sm">{r.participantCount} online</Badge>
-                    <Text component="span" c="dimmed" size="sm">
-                      {minutesLeft(r.expiresAt)} min left
-                    </Text>
+                    <Group justify="space-between" align="center" gap="xs">
+                      <div>
+                        <Link to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>
+                          <strong>{r.name}</strong>
+                        </Link>{' '}
+                        — <Badge variant="light" mr="sm">{r.participantCount} online</Badge>
+                        <Text component="span" c="dimmed" size="sm">
+                          {minutesLeft(r.expiresAt)} min left
+                        </Text>
+                      </div>
+
+                      {/* 🗑️ Delete button (hidden for global rooms) */}
+                      {r.id !== 'global' && r.id !== 'global-lobby' && (
+                        <Tooltip label="Delete this room">
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            onClick={async () => {
+                              if (!confirm(`Delete room "${r.name}"?`)) return;
+                              try {
+                                const res = await fetch(`/api/rooms/${r.id}`, {
+                                  method: 'DELETE',
+                                });
+                                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                                // remove from UI
+                                setRooms((prev) => prev.filter((x) => x.id !== r.id));
+                                // optional cleanup from localStorage if stored
+                                localStorage.removeItem(`room_${r.id}`);
+                              } catch (e: any) {
+                                alert(`Failed to delete room: ${e.message}`);
+                              }
+                            }}
+                          >
+                            <IconTrash size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
+                    </Group>
                   </List.Item>
                 ))}
               </List>
