@@ -112,11 +112,26 @@ export default function UserPage() {
 
   // --------------------------- Helpers ---------------------------------------
 
+  // Return a short timezone abbreviation for the current locale (e.g., "CDT", "ET", "BST").
+  function tzAbbr(d = new Date()) {
+    // timeZoneName: 'short' yields things like "10:30 AM CDT" or "10:30 GMT+1"
+    const parts = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
+      .formatToParts(d);
+    const tz = parts.find(p => p.type === 'timeZoneName')?.value || '';
+    // Normalize common "GMT+..." into a compact form
+    return tz.replace('GMT', 'UTC');
+  }
+
+  // Also handy if you want to print the IANA zone somewhere:
+  const localIanaTZ = Intl.DateTimeFormat().resolvedOptions().timeZone; // e.g., "America/Chicago"
+
   // Format an ISO string to the viewer's local date+time for display
+  // Show "M/D/YYYY h:mm AM/PM TZ"
   function fmtLocalTime(iso: string) {
     const d = new Date(iso);
-    // Using the browser's locale to show a friendly local time
-    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    const dateStr = d.toLocaleDateString();
+    const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `${dateStr} ${timeStr} ${tzAbbr(d)}`;
   }
 
   // Fetch current rooms list (live only; backend emits updates on creation/expiry)
@@ -156,9 +171,6 @@ export default function UserPage() {
       setGamesLoading(false);
     }
   }
-
-
-
 
   // ------------------------ Effects / Lifecycle ------------------------------
 
@@ -403,7 +415,7 @@ export default function UserPage() {
             )}
 
             <Text c="dimmed" mt="sm" size="sm">
-              Powered by TheSportsDB (soccer) & balldontlie (NBA). Auto-refreshes every 60s.
+              Powered by TheSportsDB (soccer). Auto-refreshes every 60s. Times shown in {localIanaTZ} ({tzAbbr()}).
             </Text>
           </Card>
         </Grid.Col>

@@ -61,9 +61,65 @@ const io = new Server(server, {
   },
 });
 
+
+
 // --------------------------------------------------------------------------------------
 // Shared helpers (used by games + rooms where needed)
 // --------------------------------------------------------------------------------------
+
+// --- Match status (soccer-only) ---------------------------------------------
+
+/**
+ * normalizeStatus
+ * Maps various provider strings to: 'LIVE' | 'FINAL' | 'UPCOMING'
+ * TheSportsDB free tier is inconsistent (often empty), so keep this tolerant.
+ */
+function normalizeStatus(s) {
+  const x = String(s || '').toLowerCase();
+
+  // Common "live" signals
+  if (
+    x.includes('live') ||
+    x.includes('in play') ||
+    x.includes('inplay') ||
+    x.includes('in progress') ||
+    x === 'ht' || x.includes('half')
+  ) return 'LIVE';
+
+  // Common "final" signals
+  if (
+    x.includes('final') ||
+    x.includes('finished') ||
+    x === 'ft' || x.includes('full') ||
+    x.includes('ended')
+  ) return 'FINAL';
+
+  // Everything else (incl. postponed/abandoned) we surface as UPCOMING
+  return 'UPCOMING';
+}
+
+/**
+ * determineStatus (soccer-only)
+ * 1) If provider status is decisive (LIVE/FINAL), use it.
+ * 2) Otherwise infer:
+ *    - LIVE if now is within [start, start + 2h45m]
+ *    - UPCOMING if now < start
+ *    - FINAL if now > start + 2h45m
+ */
+function determineStatus(startIso, providerStatus) {
+  const normalized = normalizeStatus(providerStatus);
+  if (normalized !== 'UPCOMING') return normalized;   // LIVE or FINAL from provider wins
+
+  const start = Date.parse(startIso);
+  if (!Number.isFinite(start)) return 'UPCOMING';
+
+  const now = Date.now();
+  const DURATION_SOCCER_MS = 2.75 * 60 * 60 * 1000;   // ~2h45m window (90+stoppage+HT+buffer)
+
+  if (now < start) return 'UPCOMING';
+  if (now <= start + DURATION_SOCCER_MS) return 'LIVE';
+  return 'FINAL';
+}
 
 /**
  * GET JSON with simple retry/back-off (handles 429 and 5xx briefly).
@@ -186,9 +242,11 @@ async function fetchSoccerTwoDayWindow({ leagues, favoriteTeam, clientTzOffsetMi
         league: e.strLeague,
         home: e.strHomeTeam,
         away: e.strAwayTeam,
-        // Keep ISO in UTC; the frontend renders in local using toLocaleString
-        startTimeIso: `${e.dateEvent}T${e.strTime || '00:00:00'}Z`,
-        status: normalizeStatus(e.strStatus || e.strProgress || e.strPostponed),
+        startTimeIso: `${e.dateEvent}T${(e.strTime || '00:00:00')}Z`,
+        status: determineStatus(
+          `${e.dateEvent}T${(e.strTime || '00:00:00')}Z`,
+          e.strStatus || e.strProgress || e.strPostponed
+        ),
       });
     }
   }
