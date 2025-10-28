@@ -58,7 +58,17 @@ export default function UserProfilePage() {
         setFavoriteTeam(u.favorite_team || '');
         setFavoritePlayer(u.favorite_player || '');
 
-        if (rRes.ok) setRooms(await rRes.json());
+        if (rRes.ok) {
+          const raw: JoinedRoom[] = await rRes.json();
+          const map = new Map<string, JoinedRoom>();
+          for (const h of raw) {
+            const prev = map.get(h.roomId);
+            if (!prev || (h.joinedAt || 0) > (prev.joinedAt || 0)) map.set(h.roomId, h);
+          }
+          const deduped = Array.from(map.values())
+            .sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+          setRooms(deduped);
+        }
       } catch (e: any) {
         setError(e.message);
       } finally {

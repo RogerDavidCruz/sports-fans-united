@@ -78,6 +78,11 @@ function archiveRoom(id) {
     participantsHistory,
   });
   rooms.delete(id);
+  for (const list of userRoomHistory.values()) {
+    for (const h of list) {
+      if (h.roomId === id && !h.expiredAt) h.expiredAt = now();
+    }
+  }
 }
 
 function getOrCreateRoomById(fixedId, displayName) {
@@ -186,17 +191,25 @@ app.get('/api/rooms/:id', (req, res) => {
 app.get('/api/users/:id/rooms', (req, res) => {
   const uid = String(req.params.id);
   const hist = userRoomHistory.get(uid) || [];
-  // enrich with participants (from live or past)
-  const enriched = hist.map((h) => {
+  
+  // coalesce by roomId to the latest entry
+  const byRoom = new Map();
+  for (const h of hist) {
+    const prev = byRoom.get(h.roomId);
+    if (!prev || (h.joinedAt || 0) > (prev.joinedAt || 0)) byRoom.set(h.roomId, { ...h });
+  }
+  const uniq = Array.from(byRoom.values());
+
+  // enrich with participants and expiredAt
+  const enriched = uniq.map((h) => {
     const live = rooms.get(h.roomId);
     const past = pastRooms.get(h.roomId);
-    const participants =
-      live
-        ? Array.from(live.history.values())
-        : past?.participantsHistory || [];
-    const expiredAt = past?.expiredAt || (live && isExpired(live) ? now() : undefined);
+    const participants = live ? Array.from(live.history.values())
+                              : (past?.participantsHistory || []);
+    const expiredAt = past?.expiredAt || (live && isExpired(live) ? now() : h.expiredAt);
     return { ...h, participants, expiredAt };
   });
+
   // newest first
   enriched.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
   res.json(enriched);
@@ -263,7 +276,17 @@ io.on('connection', (socket) => {
 
     // track user history (per-user list of rooms joined)
     const list = userRoomHistory.get(participant.id) || [];
-    list.push({ roomId: room.id, name: room.name, joinedAt: now() });
+    const ts = now();
+    const existingIdx = list.findIndex(h => h.roomId === room.id && !h.expiredAt);
+
+    if (existingIdx >= 0) {
+      // user rejoined the same live room — just refresh last-joined time
+      list[existingIdx].joinedAt = ts;
+      list[existingIdx].name = room.name; // keep display name in sync
+    } else {
+      // first time seeing this room in history (or previous entry is archived)
+      list.push({ roomId: room.id, name: room.name, joinedAt: ts });
+    }
     userRoomHistory.set(participant.id, list);
 
     // send history & participants to clients
