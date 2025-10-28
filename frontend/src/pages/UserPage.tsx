@@ -1,3 +1,21 @@
+// User Hub page:
+// - Lists users with simple filters
+// - Shows "Live & Upcoming Games" (fetched from backend)
+// - Lets the user create rooms manually OR create a room directly from a game
+// - Shows currently-live rooms and allows deleting non-global rooms
+// -----------------------------------------------------------------------------
+//
+// Notes on the games feed:
+// We call /api/games/live and pass two query params so the backend can build the
+// correct 6-hour window relative to the viewer’s local time.
+//   - nowLocal: local ISO timestamp from the browser (e.g., "2025-10-28T07:55:00.000Z")
+//   - tzOffsetMin: minutes east/west of UTC (Date#getTimezoneOffset) so the
+//                  backend can interpret the date boundary correctly.
+//
+// The backend caches results (stale-while-revalidate). The "Refresh" button here
+// triggers a fetch; the backend may still serve the cached page quickly while
+// refreshing in the background.
+
 import { useEffect, useMemo, useState } from 'react';
 import {
   Container, Title, Text, TextInput, Button, Group, Card,
@@ -6,6 +24,8 @@ import {
 import { Link } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
 import { IconMessagePlus, IconTrash } from '@tabler/icons-react';
+
+// ----------------------------- Types -----------------------------------------
 
 type User = {
   id: number;
@@ -19,10 +39,10 @@ type User = {
 type Game = {
   id: string;
   sport: string;             // "Soccer", "Basketball", ...
-  league?: string;           // optional league name
+  league?: string;           // Optional league name
   home: string;
   away: string;
-  startTimeIso: string;      // ISO datetime string from backend
+  startTimeIso: string;      // ISO datetime string from backend (UTC)
   status: 'LIVE' | 'UPCOMING' | 'FINAL';
 };
 
@@ -34,6 +54,7 @@ type LiveRoom = {
   participantCount: number;
 };
 
+// Filter dropdown options
 const CATEGORIES = [
   { value: 'ALL', label: 'All sports' },
   { value: 'Soccer', label: 'Soccer' },
@@ -43,6 +64,7 @@ const CATEGORIES = [
   { value: 'Hockey', label: 'Hockey' },
 ];
 
+// Simple greeting helper
 function greetingByTime(d = new Date()) {
   const h = d.getHours();
   if (h < 12) return 'Good morning';
@@ -50,7 +72,7 @@ function greetingByTime(d = new Date()) {
   return 'Good evening';
 }
 
-// Simple fallback if favorite_sport not set
+// Infer category if favorite_sport is missing (purely cosmetic)
 function inferCategory(u: User): string {
   if (u.favorite_sport) return u.favorite_sport;
   const s = `${u.favorite_team ?? ''} ${u.favorite_player ?? ''}`.toLowerCase();
@@ -62,10 +84,12 @@ function inferCategory(u: User): string {
   return 'Unknown';
 }
 
+// Socket endpoint (fall back to same-host dev port 5001)
 const socketURL =
   (import.meta as any).env?.VITE_SOCKET_URL || `http://${window.location.hostname}:5001`;
 
 export default function UserPage() {
+  // ---------------------------- State ----------------------------------------
   // Users + me
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,7 +101,7 @@ export default function UserPage() {
   const [teamQuery, setTeamQuery] = useState('');
   const [playerQuery, setPlayerQuery] = useState('');
 
-  // Live rooms
+  // Live rooms + create state
   const [rooms, setRooms] = useState<LiveRoom[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -86,21 +110,43 @@ export default function UserPage() {
   const [gamesLoading, setGamesLoading] = useState(false);
   const [gamesError, setGamesError] = useState<string>();
 
+  // --------------------------- Helpers ---------------------------------------
+
+  // Format an ISO string to the viewer's local date+time for display
   function fmtLocalTime(iso: string) {
     const d = new Date(iso);
+    // Using the browser's locale to show a friendly local time
     return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   }
 
+  // Fetch current rooms list (live only; backend emits updates on creation/expiry)
   async function fetchRooms() {
     const r = await fetch('/api/rooms');
     if (r.ok) setRooms(await r.json());
   }
 
+  // Fetch games:
+  // We pass nowLocal + tzOffsetMin so the server picks the correct day/range
   async function fetchGames() {
     try {
       setGamesLoading(true);
       setGamesError(undefined);
-      const r = await fetch('/api/games/live');
+
+      // Pull current user’s favorites (if available)
+      const team = me?.favorite_team || '';
+      const sport = me?.favorite_sport || 'Soccer';
+
+      // Send client tz offset (in minutes) and the team preference
+      const clientOffset = new Date().getTimezoneOffset(); // e.g., EST = 300 (will be + or -)
+      const params = new URLSearchParams({
+        team,                                 // preference boost
+        min: '5',                             // ensure at least 5
+        days_forward: '14',                   // look ahead window
+        days_back: '0',
+        client_tz_offset: String(clientOffset)
+      });
+
+      const r = await fetch(`/api/games/live?${params.toString()}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data: Game[] = await r.json();
       setGames(data);
@@ -111,7 +157,12 @@ export default function UserPage() {
     }
   }
 
-  // Socket for room list updates — with correct cleanup
+
+
+
+  // ------------------------ Effects / Lifecycle ------------------------------
+
+  // Socket for room list updates — with proper cleanup
   useEffect(() => {
     const s: Socket = io(socketURL, { transports: ['websocket', 'polling'] });
     s.on('rooms_updated', fetchRooms);
@@ -121,30 +172,39 @@ export default function UserPage() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Initial loads + periodic polling (rooms + games)
   useEffect(() => {
+    // Load all users for the left list
     fetch('/api/users')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setUsers)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
 
+    // Load "me" if we have a saved id (purely for the greeting line)
     const uid = localStorage.getItem('currentUserId');
     if (uid) {
       fetch(`/api/users/${uid}`).then(async (r) => r.ok && setMe(await r.json()));
     }
 
+    // Kick off rooms + games
     fetchRooms();
-
-    // Games: initial + auto-refresh every 60s
     fetchGames();
+
+    // Poll rooms every 30s (in addition to socket pushes)
     const ivRooms = setInterval(fetchRooms, 30_000);
+    // Poll games every 60s; backend is cached (SWr) so this is cheap UX-wise
     const ivGames = setInterval(fetchGames, 60_000);
+
     return () => {
       clearInterval(ivRooms);
       clearInterval(ivGames);
     };
   }, []);
 
+  // ----------------------------- Memos ---------------------------------------
+
+  // Client-side filter for users list
   const filtered = useMemo(() => {
     return users.filter((u) => {
       const cat = inferCategory(u);
@@ -155,12 +215,15 @@ export default function UserPage() {
     });
   }, [users, category, teamQuery, playerQuery]);
 
+  // Utility for the "min left" label shown in the rooms list
   function minutesLeft(expiresAt: number) {
     const ms = expiresAt - Date.now();
     return Math.max(0, Math.ceil(ms / 60000));
   }
 
-  // Manual room create (from text input)
+  // --------------------------- Actions ---------------------------------------
+
+  // Manual room create (from the text input on the right card)
   async function createRoom() {
     const input = document.getElementById('roomName') as HTMLInputElement | null;
     const name = (input?.value || '').trim();
@@ -185,7 +248,7 @@ export default function UserPage() {
     }
   }
 
-  // NEW: Create a room directly from a game row (hits POST /api/rooms/from-game)
+  // Create a room directly from a game row (hits POST /api/rooms/from-game)
   async function createRoomFromGame(g: Game) {
     try {
       const r = await fetch('/api/rooms/from-game', {
@@ -208,9 +271,11 @@ export default function UserPage() {
     }
   }
 
+  // ------------------------------ Render -------------------------------------
+
   return (
     <Container size="lg" style={{ marginTop: '5vh' }}>
-      {/* Header */}
+      {/* Header / Greeting */}
       <Group justify="space-between" align="flex-start" style={{ marginTop: '5vh' }}>
         <div>
           <Title order={2}>
@@ -233,8 +298,9 @@ export default function UserPage() {
       <Text c="dimmed" mt="xs">Browse users, create a chat room, and see live/upcoming games.</Text>
 
       <Grid mt="lg">
-        {/* Left: Users + filters */}
+        {/* ---------------- Left column: Users + filters + Games ---------------- */}
         <Grid.Col span={{ base: 12, md: 7 }}>
+          {/* Users list */}
           <Card withBorder shadow="sm" padding="lg">
             <Title order={4}>All Users</Title>
 
@@ -283,7 +349,7 @@ export default function UserPage() {
             )}
           </Card>
 
-          {/* Games feed (now fetched) */}
+          {/* Games feed */}
           <Card withBorder shadow="sm" padding="lg" mt="lg">
             <Group justify="space-between" align="center">
               <Title order={4}>Live & Upcoming Games</Title>
@@ -305,6 +371,7 @@ export default function UserPage() {
                 )}
                 {games.map((g) => (
                   <List.Item key={g.id}>
+                    {/* Status capsule */}
                     <Badge
                       variant="light"
                       color={g.status === 'LIVE' ? 'red' : g.status === 'UPCOMING' ? 'blue' : 'gray'}
@@ -319,7 +386,7 @@ export default function UserPage() {
                       {g.league ? ` — ${g.league}` : ''} · {fmtLocalTime(g.startTimeIso)}
                     </Text>
 
-                    {/* NEW: quick-create chat for this game */}
+                    {/* Quick-start chat for this game */}
                     <Tooltip label="Start a chat for this game">
                       <ActionIcon
                         aria-label="Create chat room"
@@ -341,8 +408,9 @@ export default function UserPage() {
           </Card>
         </Grid.Col>
 
-        {/* Right: Create room + Live rooms */}
+        {/* ---------------- Right column: Create room + Live rooms --------------- */}
         <Grid.Col span={{ base: 12, md: 5 }}>
+          {/* Manual create */}
           <Card withBorder shadow="sm" padding="lg">
             <Title order={4}>Start a Chat Room</Title>
             <Text c="dimmed" mt="xs">Create a room for a match or topic and share the URL.</Text>
@@ -358,6 +426,7 @@ export default function UserPage() {
             </Stack>
           </Card>
 
+          {/* Live rooms list (with delete for non-global rooms) */}
           <Card withBorder shadow="sm" padding="lg" mt="lg">
             <Title order={4}>Live Rooms (90-min)</Title>
             {rooms.length === 0 ? (

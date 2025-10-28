@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import {
   Container, Title, Text, Card, Loader, Button, Group,
   TextInput, Badge, List
@@ -24,7 +24,6 @@ type JoinedRoom = {
 
 export default function UserProfilePage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
 
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
