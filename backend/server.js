@@ -80,6 +80,18 @@ function archiveRoom(id) {
   rooms.delete(id);
 }
 
+function getOrCreateRoomById(fixedId, displayName) {
+  let r = rooms.get(fixedId);
+  if (r && !isExpired(r)) return r;
+
+  // createRoom adds under a random id — remove that key before pinning the fixed id
+  const created = createRoom(displayName);
+  rooms.delete(created.id);     // <-- remove the auto key
+  created.id = fixedId;         // <-- pin the id
+  rooms.set(fixedId, created);  // <-- reinsert under fixed key
+  return created;
+}
+
 // cleanup every minute
 setInterval(() => {
   for (const [id, r] of rooms) {
@@ -113,16 +125,44 @@ app.get('/api/rooms', (_req, res) => {
 
 // Create a room explicitly
 app.post('/api/rooms', (req, res) => {
-  const { name } = req.body || {};
-  const room = createRoom(name || 'fan room');
+  const raw = (req.body?.name ?? 'fan room').trim();
+  const lower = raw.toLowerCase();
+
+  // Treat lobby as a singleton with a fixed ID
+  if (lower === 'global' || lower === 'global lobby' || lower === 'global-lobby') {
+    const room = getOrCreateRoomById('global-lobby', 'global');
+    io.emit('rooms_updated');
+    return res.status(201).json({
+      id: room.id,
+      name: room.name,
+      createdAt: room.createdAt,
+      expiresAt: room.expiresAt,
+    });
+  }
+
+  // If a live room with the same name already exists, reuse it
+  for (const r of rooms.values()) {
+    if (!isExpired(r) && r.name.toLowerCase() === lower) {
+      return res.status(200).json({
+        id: r.id,
+        name: r.name,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+      });
+    }
+  }
+
+  // Otherwise create a new one
+  const room = createRoom(raw);
   io.emit('rooms_updated');
-  res.status(201).json({
+  return res.status(201).json({
     id: room.id,
     name: room.name,
     createdAt: room.createdAt,
     expiresAt: room.expiresAt,
   });
 });
+
 
 // Room detail (live or past)
 app.get('/api/rooms/:id', (req, res) => {
@@ -168,47 +208,74 @@ io.on('connection', (socket) => {
   socket.data.roomId = null;
   socket.data.userId = null;
 
+  /**
+   * join_room
+   * - If roomId is "global-lobby", reuse a single fixed room (no duplicates).
+   * - Otherwise, create room on first join if it doesn't exist.
+   * - If an existing room has expired, archive & notify client.
+   */
   socket.on('join_room', ({ roomId, userId, user: userName }) => {
     if (!roomId) return;
 
-    // Create room on first join if it doesn't exist, or revive if expired (create anew)
-    let room = rooms.get(roomId);
-    if (!room) {
-      // if a POST created it earlier, we already have it; otherwise, create a fresh one with roomId as name
-      room = createRoom(roomId.replace(/-[a-z0-9]{5}$/, ''));
-      // ensure id matches requested
-      room.id = roomId;
-      rooms.set(roomId, room);
+    let room;
+
+    // SPECIAL CASE: Global Lobby should always be the same room
+    if (roomId === 'global-lobby') {
+      // Always reuse/create the singleton "global" room with fixed id "global-lobby"
+      room = getOrCreateRoomById('global-lobby', 'global');
+    } else {
+      // Create room on first join if it doesn't exist, or revive if expired (create anew)
+      room = rooms.get(roomId);
+      if (!room) {
+        // create fresh using name derived from roomId
+        const created = createRoom(roomId.replace(/-[a-z0-9]{5}$/, ''));
+
+        // IMPORTANT: createRoom already inserted under a random id; remove it
+        rooms.delete(created.id);
+
+        // ensure id matches requested and insert only once under that key
+        created.id = roomId;
+        rooms.set(roomId, created);
+
+        room = created;
+      }
     }
+
+    // If room exists but is expired, archive it and tell client
     if (isExpired(room)) {
       // expire immediately and tell client
-      archiveRoom(roomId);
+      archiveRoom(room.id);
       socket.emit('room_expired');
       return;
     }
 
-    socket.join(roomId);
-    socket.data.roomId = roomId;
+    // Normal join flow
+    socket.join(room.id);
+    socket.data.roomId = room.id;
     socket.data.userId = userId || `guest-${socket.id}`;
 
     // track participants (current)
     const participant = { id: String(socket.data.userId), name: userName || 'Guest' };
     room.participants.set(participant.id, participant);
 
-    // track room-level history
+    // track room-level history (anyone who ever joined)
     room.history.set(participant.id, participant);
 
-    // track user history
+    // track user history (per-user list of rooms joined)
     const list = userRoomHistory.get(participant.id) || [];
     list.push({ roomId: room.id, name: room.name, joinedAt: now() });
     userRoomHistory.set(participant.id, list);
 
-    // send history & participants
+    // send history & participants to clients
     socket.emit('history', room.messages || []);
-    io.to(roomId).emit('participants', Array.from(room.participants.values()));
-    io.emit('rooms_updated');
+    io.to(room.id).emit('participants', Array.from(room.participants.values()));
+    io.emit('rooms_updated'); // broadcast so lobby lists refresh
   });
 
+  /**
+   * chat_message
+   * - Append message to room history and fan it out to the room.
+   */
   socket.on('chat_message', ({ roomId, user, text }) => {
     const room = rooms.get(roomId);
     if (!room || isExpired(room) || !text) return;
@@ -217,12 +284,18 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chat_message', msg);
   });
 
+  /**
+   * disconnect
+   * - Remove participant from current room and notify others.
+   */
   socket.on('disconnect', () => {
     const roomId = socket.data.roomId;
     const uid = socket.data.userId;
     if (!roomId || !uid) return;
+
     const room = rooms.get(roomId);
     if (!room) return;
+
     room.participants.delete(String(uid));
     io.to(roomId).emit('participants', Array.from(room.participants.values()));
     io.emit('rooms_updated');
@@ -231,6 +304,13 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 5001;
 const pool = require('./config/db');
+
+app.get('/_debug/rooms', (_req, res) => {
+  const out = [];
+  for (const [k, r] of rooms) out.push({ key: k, id: r.id, name: r.name });
+  res.json(out);
+});
+
 app.get('/db-ping', async (_req, res) => {
   try {
     const r = await pool.query('SELECT 1 AS ok');
