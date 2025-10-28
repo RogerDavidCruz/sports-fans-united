@@ -288,12 +288,25 @@ export default function UserPage() {
   return (
     <Container size="xl" style={{ marginTop: '5vh', maxWidth: '1600px' }}>
       {/* Header / Greeting */}
-      <Group justify="space-between" align="flex-start" style={{ marginTop: '5vh' }}>
+      <Group justify="space-between" align="flex-start" style={{ 
+        marginTop: '5vh',
+        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%)',
+        padding: '2rem',
+        borderRadius: '15px',
+        marginBottom: '2rem'
+      }}>
         <div>
-          <Title order={2}>
+          <Title 
+            order={2}
+            style={{ 
+              fontWeight: 700,
+              color: '#2c3e50',
+              textShadow: '1px 1px 2px rgba(0,0,0,0.05)'
+            }}
+          >
             {greetingByTime()}, {me?.name ? me.name : 'Fan'} 👋
           </Title>
-          <Text c="dimmed" mt="xs">
+          <Text c="dimmed" mt="xs" style={{ color: '#5a6c7d' }}>
             {me
               ? (() => {
                   const bits = [
@@ -307,7 +320,6 @@ export default function UserPage() {
           </Text>
         </div>
       </Group>
-      <Text c="dimmed" mt="xs">Browse users, create a chat room, and see live/upcoming games.</Text>
 
       <Grid mt="lg">
         {/* ---------------- Left column: Users + filters + Games ---------------- */}

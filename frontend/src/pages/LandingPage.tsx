@@ -73,9 +73,24 @@ export default function LandingPage() {
 
   return (
     <Container size="md" style={{ paddingTop: '5vh', paddingBottom: '5vh', minHeight: '100vh' }}>
-      <Group justify="center" mb="xl">
-        <IconBallFootball size={48} stroke={2} style={{ color: 'white' }} />
-        <Title order={1} c="white" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.2)' }}>
+      <Group justify="center" mb="xl" style={{ 
+        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.3) 0%, rgba(118, 75, 162, 0.3) 100%)',
+        padding: '2rem 3rem',
+        borderRadius: '20px',
+        backdropFilter: 'blur(10px)'
+      }}>
+        <IconBallFootball size={48} stroke={2} style={{ color: '#ffffff', filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.3))' }} />
+        <Title 
+          order={1} 
+          style={{ 
+            color: '#ffffff',
+            textShadow: '2px 2px 6px rgba(0,0,0,0.4), 0 0 10px rgba(255,255,255,0.3)',
+            fontWeight: 700,
+            fontSize: '3rem',
+            letterSpacing: '2px',
+            filter: 'drop-shadow(4px 4px 6px rgba(0,0,0,0.4))'
+          }}
+        >
           Sports Fans United
         </Title>
       </Group>

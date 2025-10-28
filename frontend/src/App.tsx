@@ -12,7 +12,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   
   return (
     <div style={{ 
-      background: isLanding ? 'transparent' : '#ffffff',
+      background: isLanding ? 'transparent' : 'linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%)',
       minHeight: '100vh'
     }}>
       {showNav && <NavBar />}
